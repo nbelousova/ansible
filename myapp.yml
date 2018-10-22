@@ -1,0 +1,64 @@
+- hosts: web
+  gather_facts: no
+  vars: 
+ 
+  tasks:
+    - name: Installing python
+      raw: apt-get update && apt-get install -y python 
+    
+    - name: Installing nginx, go, php-fpm
+      apt: 
+        name: "{{ packages }}"
+      vars: 
+       packages:
+       - nginx
+       - golang
+       - php-fpm
+       - git
+
+    - name: Clone apps from github
+      git: 
+       repo: https://github.com/nbelousova/myapp.git
+       dest: /srv
+
+    - name: Remote defualt nginx config
+      file: path=/etc/nginx/sites-enabled/default state=absent
+
+    - name: Create site config 
+      template: src=nginx.conf.j2 dest=/etc/nginx/sites-enabled/nginx.conf owner=root group=root mode=0644
+      notify: restart nginx
+
+    - name: Installing software-properties-common
+      apt: name=software-properties-common state=present
+    - name: Add repo
+      apt_repository: repo=ppa:certbot/certbot 
+      notify: apt update
+    - name: Installing certbot
+      apt: name=python-certbot-nginx state=present
+
+    - name: Get Let's Encrypt certificate
+      shell: certbot certonly -n --webroot -w /srv/www -d {{ inventory_hostname }} --expand --agree-tos --email n.belousova@sprinthost.ru
+
+    - name: Remove site config
+      file: path=/etc/nginx/sites-enabled/nginx.conf state=absent
+
+    - name: Create SSL conf
+      template: src=ssl.nginx.conf.j2 dest=/etc/nginx/sites-available/{{ inventory_hostname }}.conf owner=root group=root mode=0644
+
+    - name: Create symbol link from sites-enabled
+      file: src=/etc/nginx/sites-available/{{ inventory_hostname }}.conf dest=/etc/nginx/sites-enabled/{{ inventory_hostname }}.conf state=link
+      notify: restart nginx
+
+    - name: Create goapp service file
+      template: src=goapp.service dest=/etc/systemd/system/goapp.service
+
+    - name: Start goapp service
+      command: systemctl start goapp
+      
+      
+
+  handlers:
+    - name: restart nginx
+      service: name=nginx state=reloaded  
+    - name: apt update
+      apt: update_cache=yes  
